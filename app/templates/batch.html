@@ -1,0 +1,315 @@
+
+{% extends "base.html" %}
+
+{% block title %}Screening results — ResumeFlow{% endblock %}
+
+{% block content %}
+
+<section class="results-head reveal">
+    <a class="back-link" href="/jobs/{{ batch.job_id }}">
+        ← Back to {{ batch.job_title }}
+    </a>
+
+    <div class="eyebrow">SCREENING RESULTS / BATCH</div>
+
+    <div class="results-title-row">
+        <div>
+            <h1>Your shortlist, <em>with context.</em></h1>
+            <p class="muted">{{ batch.name }}</p>
+        </div>
+
+        <div class="export-actions">
+            <a class="button button-primary"
+               href="/batches/{{ batch.id }}/export.xlsx">
+                Export Excel ↓
+            </a>
+
+            <a class="button button-outline"
+               href="/batches/{{ batch.id }}/export.csv">
+                CSV (plain data) ↓
+            </a>
+        </div>
+    </div>
+</section>
+
+
+<section class="progress-panel"
+         id="batch-progress"
+         data-batch-id="{{ batch.id }}"
+         data-status="{{ batch.status }}">
+
+    <div class="progress-top">
+        <div class="eyebrow">
+            BATCH STATUS
+            <h2 id="status-label">{{ batch.status|title }}</h2>
+        </div>
+
+        <div class="progress-numbers">
+            <strong id="processed-count">
+                {{ batch.processed_files }}
+            </strong>
+
+            <span>of {{ batch.total_files }} processed</span>
+        </div>
+    </div>
+
+    <div class="progress-track">
+        <span id="progress-bar"
+              style="width: 0%;"
+              data-progress="{{ [((batch.processed_files / batch.total_files) * 100), 100]|min if batch.total_files else 0 }}">
+        </span>
+    </div>
+
+    <script>
+        document.getElementById('progress-bar').style.width =
+            `${document.getElementById('progress-bar').dataset.progress}%`;
+    </script>
+
+    <div class="progress-bottom">
+        <span id="failed-count">
+            {{ batch.failed_files }} files need attention
+        </span>
+
+        <span>
+            Scores are review signals, not hiring decisions.
+        </span>
+    </div>
+
+    <div id="refresh-slot" class="refresh-slot"></div>
+</section>
+
+
+<section class="results-table-section reveal">
+
+    <div class="content-heading">
+        <div class="eyebrow">CANDIDATE REVIEW</div>
+
+        <h2>
+            Ranked applicants
+            <span class="count-pill">{{ candidates|length }}</span>
+        </h2>
+    </div>
+
+    <input
+        class="search-input"
+        id="candidate-search"
+        type="search"
+        placeholder="Search applicants or skills…"
+        aria-label="Search applicants or skills"
+    >
+
+    <div class="filter-row">
+        {% for d, label in [
+            ('all', 'All'),
+            ('Interview', 'Interview'),
+            ('Needs review', 'Needs review'),
+            ('Hold', 'Hold'),
+            ('Not proceeding', 'Not proceeding')
+        ] %}
+
+        <button
+            type="button"
+            class="filter-chip {% if loop.first %}active{% endif %}"
+            data-filter="{{ d }}">
+            {{ label }}
+        </button>
+
+        {% endfor %}
+    </div>
+
+
+    <div class="results-table-wrap">
+        <table class="results-table" id="candidate-table">
+
+            <thead>
+                <tr>
+                    <th>RANK / APPLICANT</th>
+                    <th>MATCH SCORE</th>
+                    <th>SKILLS MATCH</th>
+                    <th>EXPERIENCE</th>
+                    <th>SKILLS TO VERIFY</th>
+                    <th class="decision-heading">HR DECISION</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for c in candidates %}
+
+                <tr
+                    data-name="{{ c.candidate_name|lower }}"
+                    data-skills="{{ c.skills|lower }}"
+                    data-decision="{{ c.decision }}">
+
+                    <!-- Applicant details -->
+                    <td class="candidate-cell">
+                        <div class="candidate-name">
+                            <b>{{ loop.index }}. {{ c.candidate_name }}</b>
+
+                            <button
+                                class="resume-link"
+                                type="button"
+                                data-resume-url="/candidates/{{ c.id }}/resume"
+                                data-resume-name="{{ c.filename }}">
+                                View resume ↗
+                            </button>
+                        </div>
+
+                        <small>{{ c.filename }}</small>
+
+                        <span class="matched-line">
+                            Matched skills:
+                            {{ c.matched_skills.replace(';', ', ') or 'No required skills detected' }}
+                        </span>
+                    </td>
+
+
+                    <!-- Overall match score -->
+                    <td>
+                        <strong class="score-value">
+                            {{ '%.1f'|format(c.total_score) }}%
+                        </strong>
+
+                        <progress
+                            class="score-track"
+                            value="{{ c.total_score }}"
+                            max="100"
+                            aria-label="Overall job match">
+                        </progress>
+
+                        <small>Overall job match</small>
+                    </td>
+
+
+                    <!-- Skills match -->
+                    <td>
+                        {{ '%.1f'|format(c.skill_score) }}%
+                    </td>
+
+
+                    <!-- Experience -->
+                    <td>
+                        {{ c.experience_years }} yrs
+
+                        <small>
+                            fit {{ '%.0f'|format(c.experience_score) }}%
+                        </small>
+                    </td>
+
+
+                    <!-- Skills to verify -->
+                    <td class="verify-cell">
+                        {% if c.missing_skills %}
+
+                            <span class="verify-label">
+                                Missing required skills
+                            </span>
+
+                            {{ c.missing_skills.replace(';', ', ') }}
+
+                        {% else %}
+
+                            <span class="verify-ok">
+                                No required-skill gaps detected
+                            </span>
+
+                        {% endif %}
+
+                        <small>Confirm in the original resume.</small>
+                    </td>
+
+
+                    <!-- HR decision -->
+                    <td class="decision-cell">
+                        <form
+                            class="decision-form"
+                            action="/candidates/{{ c.id }}/decision"
+                            method="post">
+
+                            <select
+                                name="decision"
+                                aria-label="HR decision for {{ c.candidate_name }}"
+                                onchange="this.form.submit()">
+
+                                {% for d in [
+                                    'Needs review',
+                                    'Interview',
+                                    'Hold',
+                                    'Not proceeding'
+                                ] %}
+
+                                <option
+                                    value="{{ d }}"
+                                    {% if c.decision == d %}selected{% endif %}>
+                                    {{ d }}
+                                </option>
+
+                                {% endfor %}
+
+                            </select>
+                        </form>
+                    </td>
+
+                </tr>
+
+                {% endfor %}
+            </tbody>
+
+        </table>
+    </div>
+
+
+    {% if not candidates %}
+    <div class="empty-card">
+        <h3>Preparing your results</h3>
+
+        <p>
+            Ranked applicants will appear here as resumes are processed.
+        </p>
+    </div>
+    {% endif %}
+
+</section>
+
+
+<div class="human-note">
+    <b>✳ Keep the human in hiring.</b>
+
+    Open each resume to verify skills, experience, and context before deciding.
+</div>
+
+
+<!-- Resume preview modal -->
+<div
+    class="resume-modal"
+    id="resume-modal"
+    aria-hidden="true"
+    role="dialog"
+    aria-modal="true">
+
+    <div class="resume-modal-card">
+
+        <div class="resume-modal-head">
+            <div>
+                <span class="eyebrow">CANDIDATE DOCUMENT</span>
+                <h2 id="resume-modal-title">Resume preview</h2>
+            </div>
+
+            <button
+                class="resume-close"
+                type="button"
+                id="resume-close"
+                aria-label="Close resume preview">
+                ×
+            </button>
+        </div>
+
+        <iframe
+            id="resume-frame"
+            title="Resume preview"
+            src="about:blank">
+        </iframe>
+
+    </div>
+</div>
+
+{% endblock %}
